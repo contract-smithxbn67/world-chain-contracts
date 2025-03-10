@@ -3,20 +3,21 @@ pragma solidity >=0.8.24;
 
 import "forge-std/Test.sol";
 import { MudTest } from "@latticexyz/world/test/MudTest.t.sol";
-import { IBaseWorld } from "@latticexyz/world/src/codegen/interfaces/IBaseWorld.sol";
-import { World } from "@latticexyz/world/src/World.sol";
-import { getKeysWithValue } from "@latticexyz/world-modules/src/modules/keyswithvalue/getKeysWithValue.sol";
+
+import { entitySystem } from "@eveworld/smart-object-framework-v2/src/namespaces/evefrontier/codegen/systems/EntitySystemLib.sol";
 
 import { Location } from "../../src/namespaces/evefrontier/codegen/tables/Location.sol";
 import { LocationData } from "../../src/namespaces/evefrontier/codegen/tables/Location.sol";
 import { LocationSystemLib, locationSystem } from "../../src/namespaces/evefrontier/codegen/systems/LocationSystemLib.sol";
-import { EveTest } from "../EveTest.sol";
 import { ResourceId } from "@latticexyz/store/src/ResourceId.sol";
-import { entitySystem } from "@eveworld/smart-object-framework-v2/src/namespaces/evefrontier/codegen/systems/EntitySystemLib.sol";
 import { AccessSystem } from "../../src/namespaces/evefrontier/systems/access-systems/AccessSystem.sol";
 
-contract LocationTest is EveTest {
+contract LocationTest is MudTest {
   uint256 smartObjectId = 1234;
+
+  string mnemonic = "test test test test test test test test test test test junk";
+  address deployer = vm.addr(vm.deriveKey(mnemonic, 0));
+  address alice = vm.addr(vm.deriveKey(mnemonic, 2));
 
   function setUp() public virtual override {
     super.setUp();

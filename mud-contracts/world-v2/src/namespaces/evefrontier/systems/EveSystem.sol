@@ -206,15 +206,11 @@ contract EveSystem is IEveSystem, SmartObjectFramework {
 
   // Configure access for FuelSystem
   function configureFuelAccess() public {
-    bytes4[8] memory onlyAdminSelectors = [
+    bytes4[4] memory onlyAdminSelectors = [
       FuelSystem.configureFuelParameters.selector,
       FuelSystem.setFuelUnitVolume.selector,
       FuelSystem.setFuelConsumptionIntervalInSeconds.selector,
-      FuelSystem.setFuelMaxCapacity.selector,
-      FuelSystem.setFuelAmount.selector,
-      FuelSystem.depositFuel.selector,
-      FuelSystem.withdrawFuel.selector,
-      FuelSystem.updateFuel.selector
+      FuelSystem.setFuelMaxCapacity.selector
     ];
 
     for (uint256 i = 0; i < onlyAdminSelectors.length; i++) {
@@ -226,6 +222,30 @@ contract EveSystem is IEveSystem, SmartObjectFramework {
       );
       accessConfigSystem.setAccessEnforcement(fuelSystem.toResourceId(), onlyAdminSelectors[i], true);
     }
+
+    accessConfigSystem.configureAccess(
+      fuelSystem.toResourceId(),
+      FuelSystem.setFuelAmount.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyAdminOrDeployableSystem.selector
+    );
+    accessConfigSystem.setAccessEnforcement(fuelSystem.toResourceId(), FuelSystem.setFuelAmount.selector, true);
+
+    accessConfigSystem.configureAccess(
+      fuelSystem.toResourceId(),
+      FuelSystem.updateFuel.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyAdminOrDeployableSystem.selector
+    );
+    accessConfigSystem.setAccessEnforcement(fuelSystem.toResourceId(), FuelSystem.updateFuel.selector, true);
+
+    accessConfigSystem.configureAccess(
+      fuelSystem.toResourceId(),
+      FuelSystem.depositFuel.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyAdminOrDeployableOwner.selector
+    );
+    accessConfigSystem.setAccessEnforcement(fuelSystem.toResourceId(), FuelSystem.depositFuel.selector, true);
   }
 
   // Configure access for DeployableSystem
@@ -349,6 +369,65 @@ contract EveSystem is IEveSystem, SmartObjectFramework {
   // Configure access for InventoryInteractSystem
   function configureInventoryInteractAccess() public {
     //TODO after checking with the team
+    accessConfigSystem.configureAccess(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.ephemeralToInventoryTransfer.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyOwnerOrCanDepositToInventory.selector
+    );
+    accessConfigSystem.setAccessEnforcement(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.ephemeralToInventoryTransfer.selector,
+      true
+    );
+
+    accessConfigSystem.configureAccess(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.inventoryToEphemeralTransfer.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyOwnerOrCanWithdrawFromInventory.selector
+    );
+    accessConfigSystem.setAccessEnforcement(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.inventoryToEphemeralTransfer.selector,
+      true
+    );
+
+    accessConfigSystem.configureAccess(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.setEphemeralToInventoryTransferAccess.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyInventoryAdmin.selector
+    );
+    accessConfigSystem.setAccessEnforcement(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.setEphemeralToInventoryTransferAccess.selector,
+      true
+    );
+
+    accessConfigSystem.configureAccess(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.setInventoryToEphemeralTransferAccess.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyInventoryAdmin.selector
+    );
+    accessConfigSystem.setAccessEnforcement(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.setInventoryToEphemeralTransferAccess.selector,
+      true
+    );
+
+    accessConfigSystem.configureAccess(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.setInventoryAdminAccess.selector,
+      accessSystem.toResourceId(),
+      AccessSystem.onlyInventoryAdmin.selector
+    );
+    accessConfigSystem.setAccessEnforcement(
+      inventoryInteractSystem.toResourceId(),
+      InventoryInteractSystem.setInventoryAdminAccess.selector,
+      true
+    );
   }
 
   // Configure access for SmartStorageUnitSystem

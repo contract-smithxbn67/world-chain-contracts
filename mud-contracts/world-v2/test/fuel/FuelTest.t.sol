@@ -3,13 +3,8 @@ pragma solidity >=0.8.24;
 
 import "forge-std/Test.sol";
 import { MudTest } from "@latticexyz/world/test/MudTest.t.sol";
-import { IWorldWithContext } from "@eveworld/smart-object-framework-v2/src/IWorldWithContext.sol";
-import { World } from "@latticexyz/world/src/World.sol";
-import { getKeysWithValue } from "@latticexyz/world-modules/src/modules/keyswithvalue/getKeysWithValue.sol";
-import { FunctionSelectors } from "@latticexyz/world/src/codegen/tables/FunctionSelectors.sol";
 import { ResourceId } from "@latticexyz/store/src/ResourceId.sol";
 
-import { IWorld } from "../../src/codegen/world/IWorld.sol";
 import { Fuel } from "../../src/namespaces/evefrontier/codegen/index.sol";
 import { FuelSystem } from "../../src/namespaces/evefrontier/systems/fuel/FuelSystem.sol";
 import { Fuel, FuelData } from "../../src/namespaces/evefrontier/codegen/tables/Fuel.sol";
@@ -32,7 +27,6 @@ contract FuelTest is DeployableTest {
 
   function setUp() public virtual override {
     super.setUp();
-    world = IWorldWithContext(worldAddress);
   }
 
   function testSetFuel(
