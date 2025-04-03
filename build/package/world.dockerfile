@@ -19,7 +19,7 @@ RUN rm -rf node_modules
 # Install module dependencies
 RUN CI=1 pnpm install --frozen-lockfile
 
-# Building all modules
+# Building all other modules
 RUN pnpm nx run-many -t build
 
 # Make entrypoint script executable
