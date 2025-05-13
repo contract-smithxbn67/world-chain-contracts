@@ -130,6 +130,7 @@ contract NetworkNodeSystem is SmartObjectFramework {
     uint256 maxCapacity = NetworkNode.getMaxEnergyCapacity(networkNodeId);
 
     if (currentReserved + energyRequired > maxCapacity) {
+      //TODO: change this to currentProduction
       revert NetworkNode_InsufficientEnergy(networkNodeId, energyRequired, maxCapacity - currentReserved);
     }
 
