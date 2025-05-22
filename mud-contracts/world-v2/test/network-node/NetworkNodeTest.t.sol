@@ -157,23 +157,7 @@ contract NetworkNodeEnergyTest is MudTest {
     vm.startPrank(deployer, deployer);
 
     // 1. Deploy and anchor Network Node
-    networkNodeSystem.createAndAnchorNetworkNode(
-      CreateAndAnchorParams({
-        smartObjectId: networkNodeId,
-        assemblyType: "NWN",
-        entityRecordParams: EntityRecordParams({
-          tenantId: tenantId,
-          typeId: EntityRecord.getTypeId(networkNodeSystem.getNetworkNodeClassId()),
-          itemId: NETWORK_NODE_ID,
-          volume: 100
-        }),
-        owner: alice,
-        locationData: LocationData({ solarSystemId: 1, x: 1000, y: 1001, z: 1002 })
-      }),
-      fuelParams,
-      80, // maxEnergyCapacity
-      80 // currentProduction
-    );
+    _setupNetworkNode(80, 80);
 
     // Verify Network Node is created and anchored
     assertTrue(NetworkNode.getExists(networkNodeId), "Network Node should exist");
@@ -209,22 +193,7 @@ contract NetworkNodeEnergyTest is MudTest {
     vm.startPrank(deployer, deployer);
 
     // 1. Deploy and connect Smart Gate
-    smartGateSystem.createAndAnchorGate(
-      CreateAndAnchorParams({
-        smartObjectId: smartGateId,
-        owner: alice,
-        locationData: locationParams,
-        entityRecordParams: EntityRecordParams({
-          tenantId: tenantId,
-          typeId: EntityRecord.getTypeId(smartGateSystem.getSmartGateClassId()),
-          itemId: SMART_GATE_ID,
-          volume: 100
-        }),
-        assemblyType: "SG"
-      }),
-      10, // maxDistance
-      networkNodeId
-    );
+    _setupSmartGate(smartGateId);
 
     // Verify Smart Gate is connected
     assertTrue(NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartGateId), "Smart Gate should be connected");
@@ -242,23 +211,7 @@ contract NetworkNodeEnergyTest is MudTest {
     assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 60, "Total reserved energy should be 60 GJ (10 + 50)");
 
     // 3. Deploy Smart Storage Unit (should connect but fail to come online due to insufficient energy)
-    smartStorageUnitSystem.createAndAnchorStorageUnit(
-      CreateAndAnchorParams({
-        smartObjectId: smartStorageId,
-        owner: alice,
-        locationData: locationParams,
-        entityRecordParams: EntityRecordParams({
-          tenantId: tenantId,
-          typeId: EntityRecord.getTypeId(smartStorageUnitSystem.getSmartStorageUnitClassId()),
-          itemId: SMART_STORAGE_ID,
-          volume: 100
-        }),
-        assemblyType: "SSU"
-      }),
-      1000, // storage capacity
-      1000, // ephemeral capacity
-      networkNodeId
-    );
+    _setupSmartStorageUnit(smartStorageId);
 
     // Verify Smart Storage Unit is connected but not online
     assertTrue(
@@ -278,6 +231,14 @@ contract NetworkNodeEnergyTest is MudTest {
     );
     deployableSystem.bringOnline(smartStorageId);
 
+    vm.stopPrank();
+    vm.resumeGasMetering();
+  }
+
+  function test_OutOfEnergy() public {
+    test_assemblyDeploymentAndEnergyManagement();
+
+    vm.startPrank(deployer, deployer);
     // Advance time
     vm.warp(block.timestamp + 3600);
 
@@ -305,59 +266,281 @@ contract NetworkNodeEnergyTest is MudTest {
     assertFalse(FuelConsumptionState.getBurnState(networkNodeId), "Burn should be stopped");
     assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 0, "No energy should be reserved");
 
+    // Verify Smart Gate is offline
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartGateId)),
+      uint8(State.ANCHORED),
+      "Smart Gate should be offline"
+    );
+
+    // Verify Smart Storage Unit is offline
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartStorageId)),
+      uint8(State.ANCHORED),
+      "Smart Storage Unit should be offline"
+    );
+
+    vm.stopPrank();
+  }
+
+  function test_destroyConnectedAssembly() public {
+    vm.pauseGasMetering();
+    vm.startPrank(deployer, deployer);
+
+    // Setup Network Node and bring it online
+    _setupNetworkNode(90, 90);
+    fuelSystem.depositFuel(networkNodeId, fuelSmartObjectId, 10);
+    deployableSystem.bringOnline(networkNodeId);
+
+    _setupSmartGate(smartGateId);
+    deployableSystem.bringOnline(smartGateId);
+
+    // Verify initial state
+    assertTrue(NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartGateId), "Smart Gate should be connected");
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 60, "Total reserved energy should be 60 GJ");
+    assertEq(uint8(DeployableState.getCurrentState(smartGateId)), uint8(State.ONLINE), "Smart Gate should be online");
+
+    // Destroy the Smart Gate
+    deployableSystem.destroyDeployable(smartGateId);
+
+    // Verify Smart Gate is destroyed and disconnected
+    assertFalse(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartGateId),
+      "Smart Gate should be disconnected"
+    );
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 10, "Total reserved energy should be 10 GJ");
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartGateId)),
+      uint8(State.DESTROYED),
+      "Smart Gate should be destroyed"
+    );
+    assertEq(
+      uint8(DeployableState.getCurrentState(networkNodeId)),
+      uint8(State.ONLINE),
+      "Network Node should be online"
+    );
+    assertEq(
+      NetworkNode.getConnectedAssemblies(networkNodeId).length,
+      0,
+      "Network Node should have no connected assemblies"
+    );
+
     vm.stopPrank();
     vm.resumeGasMetering();
   }
 
-  function test_portableRefineryDeploymentAndOperation() public {
+  function test_unanchorConnectedAssembly() public {
     vm.pauseGasMetering();
-
-    // First setup a running Network Node
-    test_networkNodeDeploymentAndOperation();
-
     vm.startPrank(deployer, deployer);
 
-    // 1. Deploy and anchor Portable Refinery
-    deployableSystem.createAndAnchor(
-      CreateAndAnchorParams({
-        smartObjectId: portableRefineryId,
-        assemblyType: "PR",
-        entityRecordParams: EntityRecordParams({
-          tenantId: tenantId,
-          typeId: EntityRecord.getTypeId(deployableSystem.getDeployableClassId()),
-          itemId: PORTABLE_REFINERY_ID,
-          volume: 100
-        }),
-        owner: alice,
-        locationData: locationParams
-      }),
-      networkNodeId
+    // Setup Network Node and Smart Storage Unit
+    _setupNetworkNode(90, 90);
+    fuelSystem.depositFuel(networkNodeId, fuelSmartObjectId, 10);
+    deployableSystem.bringOnline(networkNodeId);
+
+    _setupSmartStorageUnit(smartStorageId);
+    deployableSystem.bringOnline(smartStorageId);
+
+    // Verify initial state
+    assertTrue(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartStorageId),
+      "Smart Storage Unit should be connected"
     );
-
-    // Verify Portable Refinery is created and anchored
     assertEq(
-      uint8(DeployableState.getCurrentState(portableRefineryId)),
-      uint8(State.ANCHORED),
-      "Portable Refinery should be anchored"
-    );
-
-    // 2. Bring Portable Refinery online (should succeed as Network Node has enough energy)
-    deployableSystem.bringOnline(portableRefineryId);
-
-    // Verify Portable Refinery is online
-    assertEq(
-      uint8(DeployableState.getCurrentState(portableRefineryId)),
+      uint8(DeployableState.getCurrentState(smartStorageId)),
       uint8(State.ONLINE),
-      "Portable Refinery should be online"
+      "Smart Storage Unit should be online"
+    );
+    vm.stopPrank();
+
+    // Unanchor the Smart Storage Unit
+    vm.prank(alice, deployer);
+    deployableSystem.unanchor(smartStorageId);
+    vm.stopPrank();
+
+    // Verify Smart Storage Unit is unanchored and disconnected
+    assertFalse(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartStorageId),
+      "Smart Storage Unit should be disconnected"
+    );
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartStorageId)),
+      uint8(State.UNANCHORED),
+      "Smart Storage Unit should be unanchored"
+    );
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 10, "Total reserved energy should be 10 GJ");
+
+    vm.resumeGasMetering();
+  }
+
+  function test_destroyNetworkNodeWithAssemblies() public {
+    vm.pauseGasMetering();
+    vm.startPrank(deployer, deployer);
+
+    // Setup Network Node and Smart Storage Unit
+    _setupNetworkNode(90, 90);
+    fuelSystem.depositFuel(networkNodeId, fuelSmartObjectId, 10);
+    deployableSystem.bringOnline(networkNodeId);
+
+    _setupSmartStorageUnit(smartStorageId);
+    deployableSystem.bringOnline(smartStorageId);
+
+    // Verify initial state
+    assertTrue(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartStorageId),
+      "Smart Storage Unit should be connected"
+    );
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 40, "Total reserved energy should be 40 GJ");
+    assertEq(
+      uint8(DeployableState.getCurrentState(networkNodeId)),
+      uint8(State.ONLINE),
+      "Network Node should be online"
+    );
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartStorageId)),
+      uint8(State.ONLINE),
+      "Smart Storage Unit should be online"
     );
 
-    //Verify energy status
-    assertEq(NetworkNode.getEnergyProduced(networkNodeId), 80, "Should be producing 80 GJ");
-    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 10, "Total reserved energy should be 10 GJ");
-    assertEq(Fuel.getFuelAmount(networkNodeId), 9, "Fuel amount should be 9 units");
+    // Destroy the Network Node
+    deployableSystem.destroyDeployable(networkNodeId);
+
+    // Verify Network Node is destroyed and all assemblies are offline
+    assertFalse(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartStorageId),
+      "Smart Storage Unit should be disconnected"
+    );
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 0, "Total reserved energy should be 0 GJ");
+    assertEq(
+      uint8(DeployableState.getCurrentState(networkNodeId)),
+      uint8(State.DESTROYED),
+      "Network Node should be destroyed"
+    );
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartStorageId)),
+      uint8(State.ANCHORED),
+      "Smart Storage Unit should be anchored"
+    );
+    assertFalse(FuelConsumptionState.getBurnState(networkNodeId), "Burn should be stopped");
 
     vm.stopPrank();
     vm.resumeGasMetering();
+  }
+
+  function test_unanchorNetworkNodeWithAssemblies() public {
+    vm.pauseGasMetering();
+    vm.startPrank(deployer, deployer);
+
+    // Setup Network Node and Smart Storage Unit
+    _setupNetworkNode(90, 90);
+    fuelSystem.depositFuel(networkNodeId, fuelSmartObjectId, 10);
+    deployableSystem.bringOnline(networkNodeId);
+
+    _setupSmartStorageUnit(smartStorageId);
+    deployableSystem.bringOnline(smartStorageId);
+    vm.stopPrank();
+
+    // Verify initial state
+    assertTrue(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartStorageId),
+      "Smart Storage Unit should be connected"
+    );
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 40, "Total reserved energy should be 40 GJ");
+    assertEq(
+      uint8(DeployableState.getCurrentState(networkNodeId)),
+      uint8(State.ONLINE),
+      "Network Node should be online"
+    );
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartStorageId)),
+      uint8(State.ONLINE),
+      "Smart Storage Unit should be online"
+    );
+
+    // Unanchor the Network Node (using deployer who is the owner)
+    vm.prank(alice, deployer);
+    deployableSystem.unanchor(networkNodeId);
+    vm.stopPrank();
+
+    // Verify Network Node is unanchored and all assemblies are offline
+    assertFalse(
+      NetworkNodeAssemblyLink.getIsConnected(networkNodeId, smartStorageId),
+      "Smart Storage Unit should be disconnected"
+    );
+    assertEq(NetworkNode.getTotalReservedEnergy(networkNodeId), 0, "Total reserved energy should be 0 GJ");
+    assertEq(
+      uint8(DeployableState.getCurrentState(networkNodeId)),
+      uint8(State.UNANCHORED),
+      "Network Node should be unanchored"
+    );
+    assertEq(
+      uint8(DeployableState.getCurrentState(smartStorageId)),
+      uint8(State.ANCHORED),
+      "Smart Storage Unit should be offline"
+    );
+    assertFalse(FuelConsumptionState.getBurnState(networkNodeId), "Burn should be stopped");
+
+    vm.resumeGasMetering();
+  }
+
+  // Helper functions for common setup and operations
+  function _setupNetworkNode(uint256 maxEnergyCapacity, uint256 currentProduction) internal {
+    networkNodeSystem.createAndAnchorNetworkNode(
+      CreateAndAnchorParams({
+        smartObjectId: networkNodeId,
+        assemblyType: "NWN",
+        entityRecordParams: EntityRecordParams({
+          tenantId: tenantId,
+          typeId: EntityRecord.getTypeId(networkNodeSystem.getNetworkNodeClassId()),
+          itemId: NETWORK_NODE_ID,
+          volume: 100
+        }),
+        owner: alice,
+        locationData: LocationData({ solarSystemId: 1, x: 1000, y: 1001, z: 1002 })
+      }),
+      fuelParams,
+      maxEnergyCapacity,
+      currentProduction
+    );
+  }
+
+  function _setupSmartGate(uint256 gateId) internal {
+    smartGateSystem.createAndAnchorGate(
+      CreateAndAnchorParams({
+        smartObjectId: gateId,
+        owner: alice,
+        locationData: locationParams,
+        entityRecordParams: EntityRecordParams({
+          tenantId: tenantId,
+          typeId: EntityRecord.getTypeId(smartGateSystem.getSmartGateClassId()),
+          itemId: SMART_GATE_ID,
+          volume: 100
+        }),
+        assemblyType: "SG"
+      }),
+      10, // maxDistance
+      networkNodeId
+    );
+  }
+
+  function _setupSmartStorageUnit(uint256 storageId) internal {
+    smartStorageUnitSystem.createAndAnchorStorageUnit(
+      CreateAndAnchorParams({
+        smartObjectId: storageId,
+        owner: alice,
+        locationData: locationParams,
+        entityRecordParams: EntityRecordParams({
+          tenantId: tenantId,
+          typeId: EntityRecord.getTypeId(smartStorageUnitSystem.getSmartStorageUnitClassId()),
+          itemId: SMART_STORAGE_ID,
+          volume: 100
+        }),
+        assemblyType: "SSU"
+      }),
+      1000, // storage capacity
+      1000, // ephemeral capacity
+      networkNodeId
+    );
   }
 
   // Helper function to calculate itemObjectId

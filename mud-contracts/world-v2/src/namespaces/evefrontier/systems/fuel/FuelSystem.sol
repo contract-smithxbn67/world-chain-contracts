@@ -15,7 +15,7 @@ import { SmartAssemblySystem } from "../smart-assembly/SmartAssemblySystem.sol";
 
 // Types and parameters
 import { State } from "../../../../codegen/common.sol";
-import { ONE_UNIT_IN_WEI, NETWORK_NODE } from "./../constants.sol";
+import { ONE_UNIT_IN_WEI, NETWORK_NODE, MIN_FUEL_EFFICIENCY, MAX_FUEL_EFFICIENCY, PERCENTAGE_DIVISOR, MIN_FUEL_BURN_RATE } from "./../constants.sol";
 import { FuelParams } from "./types.sol";
 import { EntityRecordParams } from "../entity-record/types.sol";
 
@@ -58,8 +58,16 @@ contract FuelSystem is SmartObjectFramework {
       revert Fuel_InvalidFuelMaxCapacity(smartObjectId, fuelParams.fuelMaxCapacity, 1, uint256(type(uint128).max));
     }
     // fuel burn rate must be at least 60 seconds
-    if (fuelParams.fuelBurnRateInSeconds < 60 || fuelParams.fuelBurnRateInSeconds > uint256(type(uint128).max)) {
-      revert Fuel_InvalidFuelBurnRate(smartObjectId, fuelParams.fuelBurnRateInSeconds, 60, uint256(type(uint128).max));
+    if (
+      fuelParams.fuelBurnRateInSeconds <= MIN_FUEL_BURN_RATE ||
+      fuelParams.fuelBurnRateInSeconds > uint256(type(uint128).max)
+    ) {
+      revert Fuel_InvalidFuelBurnRate(
+        smartObjectId,
+        fuelParams.fuelBurnRateInSeconds,
+        MIN_FUEL_BURN_RATE,
+        uint256(type(uint128).max)
+      );
     }
 
     Fuel.setFuelMaxCapacity(smartObjectId, fuelParams.fuelMaxCapacity);
@@ -72,13 +80,12 @@ contract FuelSystem is SmartObjectFramework {
    * @param smartObjectId on-chain id of the deployable
    * @param fuelEntityParams the parameters of the fuel
    * @param fuelEfficiency the efficiency of the fuel
-   * TODO: access control for this function
    */
   function configureFuelEfficiency(
     uint256 smartObjectId,
     EntityRecordParams memory fuelEntityParams,
     uint256 fuelEfficiency
-  ) public {
+  ) public context access(smartObjectId) {
     bytes32 tenantId = Tenant.get();
 
     if (tenantId != fuelEntityParams.tenantId) {
@@ -124,6 +131,8 @@ contract FuelSystem is SmartObjectFramework {
       }
     }
 
+    updateFuel(smartObjectId);
+
     uint256 currentFuelAmount = Fuel.getFuelAmount(smartObjectId);
     uint256 fuelMaxCapacity = Fuel.getFuelMaxCapacity(smartObjectId);
     uint256 currentVolume = EntityRecord.getVolume(fuelSmartObjectId);
@@ -149,6 +158,7 @@ contract FuelSystem is SmartObjectFramework {
     uint256 smartObjectId,
     uint256 fuelAmount
   ) public context access(smartObjectId) scope(smartObjectId) {
+    updateFuel(smartObjectId);
     uint256 currentFuelAmount = Fuel.getFuelAmount(smartObjectId);
 
     if (fuelAmount == 0 || fuelAmount > currentFuelAmount) {
@@ -240,12 +250,12 @@ contract FuelSystem is SmartObjectFramework {
     uint256 fuelEfficiency = FuelEfficiencyConfig.getEfficiency(fuelSmartObjectId); // 0-100
     fuelAmount = Fuel.getFuelAmount(smartObjectId);
 
-    if (!burnState || burnStartTime == 0 || fuelBurnRateInSeconds < 60) {
+    if (!burnState || burnStartTime == 0 || fuelBurnRateInSeconds < MIN_FUEL_BURN_RATE) {
       return (0, 0, 0, fuelAmount);
     }
 
-    if (fuelEfficiency > 10 && fuelEfficiency <= 100) {
-      actualConsumptionRateInSeconds = (fuelBurnRateInSeconds * fuelEfficiency) / 100;
+    if (fuelEfficiency >= MIN_FUEL_EFFICIENCY && fuelEfficiency <= MAX_FUEL_EFFICIENCY) {
+      actualConsumptionRateInSeconds = (fuelBurnRateInSeconds * fuelEfficiency) / PERCENTAGE_DIVISOR;
     } else {
       actualConsumptionRateInSeconds = fuelBurnRateInSeconds;
     }
@@ -274,6 +284,8 @@ contract FuelSystem is SmartObjectFramework {
    **************************/
   // Mock: handle out of fuel by calling NetworkNodeSystem to bring everything offline
   function _handleOutOfFuel(uint256 smartObjectId) internal {
+    //stop burn before bringing offline
+    stopBurn(smartObjectId);
     if (DeployableState.getCurrentState(smartObjectId) == State.ONLINE) {
       deployableSystem.bringOffline(smartObjectId);
     }
